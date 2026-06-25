@@ -29,29 +29,22 @@ import yfinance as yf
 # ==========================================
 # 📊 توابع دریافت داده از Yahoo Finance (دیتای لایو بدون تاخیر)
 # ==========================================
-def get_daily_sma200(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1y", interval="1d")
-        if len(df) < 200:
-            return None
-        sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
-        return sma200
-    except:
-        return None
-
 def get_intraday_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # استفاده از prepost=True بسیار حیاتی است تا دیتای قبل از بازار (Pre-market) را دریافت کنیم
+        # دریافت 5 روز اخیر تایم فریم 5 دقیقه‌ای (شامل Pre-market)
         df = ticker.history(period="5d", interval="5m", prepost=True)
-        if df.empty:
-            return None, None, None
+        if df.empty or len(df) < 200:
+            return None, None, None, None
             
         df.index = df.index.tz_convert('America/New_York')
+        
+        # محاسبه SMA 200 در تایم فریم 5 دقیقه‌ای (دقیقاً مشابه بک‌تست تریدینگ ویو)
+        sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
+        
         unique_days = df.index.normalize().unique()
         if len(unique_days) < 2:
-            return None, None, None
+            return None, None, None, None
             
         today_date = unique_days[-1]
         prev_date = unique_days[-2]
@@ -66,9 +59,10 @@ def get_intraday_data(symbol):
         
         current_price = df['Close'].iloc[-1]
         
-        return current_price, pmh, prev_hod
-    except:
-        return None, None, None
+        return current_price, pmh, prev_hod, sma200
+    except Exception as e:
+        print(f"Error fetching data for {symbol}: {e}")
+        return None, None, None, None
 
 # ==========================================
 # 💰 توابع معاملاتی Alpaca
@@ -148,18 +142,17 @@ def run_bot():
             print(f"  🛑 {symbol}: Already traded today. Waiting for tomorrow to prevent over-trading.")
             continue
             
-        sma200 = get_daily_sma200(symbol)
+        current_price, pmh, prev_hod, sma200 = get_intraday_data(symbol)
         if not sma200:
+            print(f"  ⚠️ Not enough data for 5m SMA200 on {symbol}.")
             continue
-            
-        current_price, pmh, prev_hod = get_intraday_data(symbol)
         
         valid_highs = [h for h in (pmh, prev_hod) if h is not None]
         
         if current_price and valid_highs:
             target_breakout = max(valid_highs)
             
-            print(f"  📊 {symbol} | Price: ${current_price:.2f} | Breakout Level: ${target_breakout:.2f} | SMA200: ${sma200:.2f}")
+            print(f"  📊 {symbol} | Price: ${current_price:.2f} | Breakout Level: ${target_breakout:.2f} | 5m SMA200: ${sma200:.2f}")
             
             if current_price > target_breakout and current_price > sma200:
                 print(f"  🔥 SIGNAL TRIGGERED FOR {symbol}! Breakout detected.")
