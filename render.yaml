@@ -1,0 +1,6 @@
+services:
+  - type: worker
+    name: alpaca-live-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python alpaca_live_bot.py
