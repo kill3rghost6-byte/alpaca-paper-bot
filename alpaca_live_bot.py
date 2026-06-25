@@ -81,6 +81,18 @@ def get_open_positions():
     resp = requests.get(f"{ALPACA_BASE_URL}/positions", headers=ALPACA_HEADERS)
     return [p['symbol'] for p in resp.json()] if resp.status_code == 200 else []
 
+def has_traded_today(symbol):
+    """ بررسی می‌کند که آیا امروز برای این سهم اردر خریدی ثبت شده یا نه تا از خرید مجدد در یک روز جلوگیری شود """
+    ny_time = datetime.now(pytz.timezone('America/New_York'))
+    today_str = ny_time.strftime('%Y-%m-%d')
+    resp = requests.get(f"{ALPACA_BASE_URL}/orders?status=all&symbols={symbol}&after={today_str}T00:00:00Z", headers=ALPACA_HEADERS)
+    if resp.status_code == 200:
+        orders = resp.json()
+        for o in orders:
+            if o['side'] == 'buy':
+                return True
+    return False
+
 def place_buy_order_with_tp(symbol, qty, current_price):
     tp_price = round(current_price * (1 + TAKE_PROFIT_PCT), 2)
     
@@ -132,14 +144,20 @@ def run_bot():
             print(f"  ⏭️ {symbol}: Already in position. Waiting for Take Profit.")
             continue
             
+        if has_traded_today(symbol):
+            print(f"  🛑 {symbol}: Already traded today. Waiting for tomorrow to prevent over-trading.")
+            continue
+            
         sma200 = get_daily_sma200(symbol)
         if not sma200:
             continue
             
         current_price, pmh, prev_hod = get_intraday_data(symbol)
         
-        if current_price and pmh and prev_hod:
-            target_breakout = max(pmh, prev_hod)
+        valid_highs = [h for h in (pmh, prev_hod) if h is not None]
+        
+        if current_price and valid_highs:
+            target_breakout = max(valid_highs)
             
             print(f"  📊 {symbol} | Price: ${current_price:.2f} | Breakout Level: ${target_breakout:.2f} | SMA200: ${sma200:.2f}")
             
