@@ -160,7 +160,7 @@ def run_bot():
                 else:
                     print(f"  ⚠️ Not enough equity to buy even 1 share of {symbol}.")
         
-        time.sleep(12) 
+        time.sleep(25) 
 
     print("✅ Scan complete. Exiting script.")
 
