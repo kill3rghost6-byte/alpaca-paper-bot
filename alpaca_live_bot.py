@@ -43,7 +43,8 @@ def get_daily_sma200(symbol):
 def get_intraday_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="5d", interval="5m")
+        # استفاده از prepost=True بسیار حیاتی است تا دیتای قبل از بازار (Pre-market) را دریافت کنیم
+        df = ticker.history(period="5d", interval="5m", prepost=True)
         if df.empty:
             return None, None, None
             
