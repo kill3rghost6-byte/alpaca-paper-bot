@@ -28,7 +28,6 @@ ALPACA_HEADERS = {
 # 📊 توابع دریافت داده از Polygon
 # ==========================================
 def get_daily_sma200(symbol):
-    """ دریافت دیتای روزانه برای محاسبه SMA 200 """
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
     url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={POLYGON_API_KEY}"
@@ -40,13 +39,12 @@ def get_daily_sma200(symbol):
     df = pd.DataFrame(resp['results'])
     df['close'] = df['c']
     if len(df) < 200:
-        return None  # دیتای کافی برای SMA 200 وجود ندارد
+        return None  
         
     sma200 = df['close'].rolling(window=200).mean().iloc[-1]
     return sma200
 
 def get_intraday_data(symbol):
-    """ دریافت دیتای 5 دقیقه‌ای برای 3 روز گذشته جهت استخراج PMH و HOD و قیمت فعلی """
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=4)).strftime('%Y-%m-%d')
     url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={POLYGON_API_KEY}"
@@ -111,77 +109,60 @@ def place_buy_order_with_tp(symbol, qty, current_price):
         print(f"❌ [ORDER FAILED] {symbol}: {resp.text}")
 
 # ==========================================
-# 🚀 موتور اصلی ربات (Main Loop)
+# 🚀 موتور اصلی ربات (برای GitHub Actions)
 # ==========================================
 def run_bot():
-    print("🚀 Starting Trend Join Gapper Live Paper Trading Bot...")
-    print(f"📡 Alpaca API: {ALPACA_BASE_URL}")
-    print(f"📈 Monitoring Symbols: {SYMBOLS}\n")
+    print("🚀 Starting Trend Join Gapper Live Paper Trading Bot (Cron Mode)...")
     
-    while True:
-        try:
-            ny_time = datetime.now(pytz.timezone('America/New_York'))
-            print(f"[{ny_time.strftime('%Y-%m-%d %H:%M:%S')} ET] Checking market conditions...")
+    ny_time = datetime.now(pytz.timezone('America/New_York'))
+    print(f"[{ny_time.strftime('%Y-%m-%d %H:%M:%S')} ET] Checking market conditions...")
+    
+    if not (9 <= ny_time.hour <= 16):
+        print("💤 Market is closed. Exiting.")
+        return
+        
+    if ny_time.hour == 9 and ny_time.minute < 30:
+        print("💤 Pre-market. Exiting.")
+        return
+
+    account = get_account_info()
+    if 'equity' not in account:
+        print("❌ Failed to fetch Alpaca account. Exiting.")
+        return
+        
+    equity = float(account['equity'])
+    open_positions = get_open_positions()
+    
+    for symbol in SYMBOLS:
+        if symbol in open_positions:
+            print(f"  ⏭️ {symbol}: Already in position. Waiting for Take Profit.")
+            continue
             
-            # بررسی باز بودن بازار (فقط بین 9:30 تا 16:00 کار میکند)
-            if not (9 <= ny_time.hour <= 16):
-                print("💤 Market is closed. Sleeping for 5 minutes...")
-                time.sleep(300)
-                continue
-                
-            if ny_time.hour == 9 and ny_time.minute < 30:
-                print("💤 Pre-market. Waiting for regular open...")
-                time.sleep(60)
-                continue
-            if ny_time.hour == 16:
-                print("💤 Market just closed. Sleeping...")
-                time.sleep(300)
-                continue
-
-            account = get_account_info()
-            if 'equity' not in account:
-                print("❌ Failed to fetch Alpaca account. Retrying in 60s...")
-                time.sleep(60)
-                continue
-                
-            equity = float(account['equity'])
-            open_positions = get_open_positions()
+        sma200 = get_daily_sma200(symbol)
+        if not sma200:
+            continue
             
-            for symbol in SYMBOLS:
-                if symbol in open_positions:
-                    print(f"  ⏭️ {symbol}: Already in position. Waiting for Take Profit.")
-                    continue
-                    
-                sma200 = get_daily_sma200(symbol)
-                if not sma200:
-                    continue
-                    
-                current_price, pmh, prev_hod = get_intraday_data(symbol)
+        current_price, pmh, prev_hod = get_intraday_data(symbol)
+        
+        if current_price and pmh and prev_hod:
+            target_breakout = max(pmh, prev_hod)
+            
+            print(f"  📊 {symbol} | Price: ${current_price:.2f} | Breakout Level: ${target_breakout:.2f} | SMA200: ${sma200:.2f}")
+            
+            if current_price > target_breakout and current_price > sma200:
+                print(f"  🔥 SIGNAL TRIGGERED FOR {symbol}! Breakout detected.")
                 
-                if current_price and pmh and prev_hod:
-                    target_breakout = max(pmh, prev_hod)
-                    
-                    print(f"  📊 {symbol} | Price: ${current_price:.2f} | Breakout Level: ${target_breakout:.2f} | SMA200: ${sma200:.2f}")
-                    
-                    if current_price > target_breakout and current_price > sma200:
-                        print(f"  🔥 SIGNAL TRIGGERED FOR {symbol}! Breakout detected.")
-                        
-                        position_value = equity * POSITION_SIZE_PCT
-                        qty = int(position_value / current_price)
-                        
-                        if qty > 0:
-                            place_buy_order_with_tp(symbol, qty, current_price)
-                        else:
-                            print(f"  ⚠️ Not enough equity to buy even 1 share of {symbol}.")
+                position_value = equity * POSITION_SIZE_PCT
+                qty = int(position_value / current_price)
                 
-                time.sleep(12) 
+                if qty > 0:
+                    place_buy_order_with_tp(symbol, qty, current_price)
+                else:
+                    print(f"  ⚠️ Not enough equity to buy even 1 share of {symbol}.")
+        
+        time.sleep(12) 
 
-            print("⏳ Scan complete. Waiting 2 minutes for next cycle...\n")
-            time.sleep(120)
-
-        except Exception as e:
-            print(f"⚠️ Error in main loop: {e}")
-            time.sleep(60)
+    print("✅ Scan complete. Exiting script.")
 
 if __name__ == "__main__":
     run_bot()
