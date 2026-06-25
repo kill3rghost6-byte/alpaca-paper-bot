@@ -165,7 +165,8 @@ def run_bot():
                 else:
                     print(f"  ⚠️ Not enough equity to buy even 1 share of {symbol}.")
         
-        time.sleep(25) 
+        # یک مکث 1 ثانیه‌ای برای جلوگیری از اسپم شدن API یاهو
+        time.sleep(1) 
 
     print("✅ Scan complete. Exiting script.")
 
