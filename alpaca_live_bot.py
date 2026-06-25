@@ -24,57 +24,50 @@ ALPACA_HEADERS = {
     "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY
 }
 
+import yfinance as yf
+
 # ==========================================
-# 📊 توابع دریافت داده از Polygon
+# 📊 توابع دریافت داده از Yahoo Finance (دیتای لایو بدون تاخیر)
 # ==========================================
 def get_daily_sma200(symbol):
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-    url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={POLYGON_API_KEY}"
-    
-    resp = requests.get(url).json()
-    if 'results' not in resp:
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1y", interval="1d")
+        if len(df) < 200:
+            return None
+        sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
+        return sma200
+    except:
         return None
-        
-    df = pd.DataFrame(resp['results'])
-    df['close'] = df['c']
-    if len(df) < 200:
-        return None  
-        
-    sma200 = df['close'].rolling(window=200).mean().iloc[-1]
-    return sma200
 
 def get_intraday_data(symbol):
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=4)).strftime('%Y-%m-%d')
-    url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={POLYGON_API_KEY}"
-    
-    resp = requests.get(url).json()
-    if 'results' not in resp:
-        return None, None, None
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="5d", interval="5m")
+        if df.empty:
+            return None, None, None
+            
+        df.index = df.index.tz_convert('America/New_York')
+        unique_days = df.index.normalize().unique()
+        if len(unique_days) < 2:
+            return None, None, None
+            
+        today_date = unique_days[-1]
+        prev_date = unique_days[-2]
         
-    df = pd.DataFrame(resp['results'])
-    df['timestamp'] = pd.to_datetime(df['t'], unit='ms', utc=True).dt.tz_convert('America/New_York')
-    df.set_index('timestamp', inplace=True)
-    
-    unique_days = df.index.normalize().unique()
-    if len(unique_days) < 2:
-        return None, None, None
+        prev_day_data = df.loc[str(prev_date.date())]
+        prev_reg = prev_day_data.between_time('09:30', '15:59')
+        prev_hod = prev_reg['High'].max() if not prev_reg.empty else None
         
-    today_date = unique_days[-1]
-    prev_date = unique_days[-2]
-    
-    prev_day_data = df.loc[str(prev_date.date())]
-    prev_reg = prev_day_data.between_time('09:30', '15:59')
-    prev_hod = prev_reg['h'].max() if not prev_reg.empty else None
-    
-    today_data = df.loc[str(today_date.date())]
-    today_pm = today_data.between_time('04:00', '09:29')
-    pmh = today_pm['h'].max() if not today_pm.empty else None
-    
-    current_price = df['c'].iloc[-1]
-    
-    return current_price, pmh, prev_hod
+        today_data = df.loc[str(today_date.date())]
+        today_pm = today_data.between_time('04:00', '09:29')
+        pmh = today_pm['High'].max() if not today_pm.empty else None
+        
+        current_price = df['Close'].iloc[-1]
+        
+        return current_price, pmh, prev_hod
+    except:
+        return None, None, None
 
 # ==========================================
 # 💰 توابع معاملاتی Alpaca
