@@ -120,9 +120,13 @@ def place_buy_order_with_tp(symbol, qty, current_price):
     
     resp = requests.post(f"{ALPACA_BASE_URL}/orders", headers=ALPACA_HEADERS, json=order_data)
     if resp.status_code in [200, 201]:
-        print(f"✅ [ORDER SUCCESS] Bought {qty} shares of {symbol} at ~${current_price}. TP set at ${tp_price}.")
+        msg = f"✅ **ORDER SUCCESS** ✅\nBought {qty} shares of {symbol} at ~${current_price}.\nTP Limit: ${tp_price}"
+        print(msg)
+        send_telegram(msg)
     else:
-        print(f"❌ [ORDER FAILED] {symbol}: {resp.text}")
+        msg = f"❌ **ORDER FAILED** ❌\n{symbol}: {resp.text}"
+        print(msg)
+        send_telegram(msg)
 
 # ==========================================
 # 🚀 موتور اصلی ربات (برای GitHub Actions)
@@ -186,5 +190,66 @@ def run_bot():
 
     print("✅ Scan complete. Exiting script.")
 
+def run_continuous():
+    send_telegram("🚀 **Alpaca Stock Bot Started in Continuous Mode** 🚀")
+    start_time = time.time()
+    max_duration = 5.5 * 3600 # 5.5 hours max per GitHub Action
+    
+    last_heartbeat_time = 0
+    
+    while time.time() - start_time < max_duration:
+        try:
+            ny_time = datetime.now(pytz.timezone('America/New_York'))
+            if 9 <= ny_time.hour <= 16:
+                run_bot()
+            else:
+                print("💤 Market is closed. Sleeping...")
+            
+            # 15-Minute Heartbeat
+            current_time = time.time()
+            if current_time - last_heartbeat_time >= 15 * 60:
+                account = get_account_info()
+                if 'equity' in account:
+                    bal = float(account['equity'])
+                    msg = f"⏳ **Alpaca Status Update (15m)**\n💰 Equity: ${bal:,.2f}"
+                    
+                    # Get position details directly from Alpaca
+                    pos_resp = requests.get(f"{ALPACA_BASE_URL}/positions", headers=ALPACA_HEADERS)
+                    if pos_resp.status_code == 200:
+                        positions = pos_resp.json()
+                        if positions:
+                            msg += "\n📂 Open Positions:"
+                            for p in positions:
+                                sym = p['symbol']
+                                unrealized_pl = float(p['unrealized_pl'])
+                                pl_pct = float(p['unrealized_plpc']) * 100
+                                msg += f"\n  ▫️ {sym}: ${unrealized_pl:.2f} ({pl_pct:.2f}%)"
+                        else:
+                            msg += "\n📂 No active positions."
+                            
+                    send_telegram(msg)
+                last_heartbeat_time = current_time
+                
+        except Exception as e:
+            print("Error in run_bot:", e)
+            
+        now = datetime.now(pytz.timezone('America/New_York'))
+        # Find next minute mark that is a multiple of 5 + 1 min padding (e.g., 01, 06, 11)
+        minute = ((now.minute // 5) + 1) * 5 + 1
+        
+        if minute >= 60:
+            next_run = now.replace(minute=minute-60, second=0, microsecond=0) + timedelta(hours=1)
+        else:
+            next_run = now.replace(minute=minute, second=0, microsecond=0)
+            
+        sleep_seconds = (next_run - now).total_seconds()
+        if sleep_seconds > 0:
+            print(f"Sleeping for {sleep_seconds:.1f} seconds until {next_run.strftime('%H:%M:%S')} NY Time...")
+            time.sleep(sleep_seconds)
+
 if __name__ == "__main__":
-    run_bot()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == '--continuous':
+        run_continuous()
+    else:
+        run_bot()
