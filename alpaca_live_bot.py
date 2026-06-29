@@ -27,7 +27,7 @@ ALPACA_HEADERS = {
 import yfinance as yf
 import os
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8233036914:AAF699ijYWDwJebEKu__CH6QUrNvLx2TPnA")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8731287031:AAF3-J-V6DEJ2iVLWinm05AMAfvtM3plsmE")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5708853617")
 
 def send_telegram(message, max_retries=3):
