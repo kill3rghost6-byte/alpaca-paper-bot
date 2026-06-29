@@ -25,6 +25,22 @@ ALPACA_HEADERS = {
 }
 
 import yfinance as yf
+import os
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8233036914:AAF699ijYWDwJebEKu__CH6QUrNvLx2TPnA")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5708853617")
+
+def send_telegram(message, max_retries=3):
+    print(f"Telegram Log: {message}")
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        for attempt in range(max_retries):
+            try:
+                requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=10)
+                return
+            except Exception as e:
+                print(f"Telegram Error (Attempt {attempt+1}/{max_retries}): {e}")
+                time.sleep(3)
 
 # ==========================================
 # 📊 توابع دریافت داده از Yahoo Finance (دیتای لایو بدون تاخیر)
