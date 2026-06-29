@@ -3,7 +3,7 @@ name: Alpaca Live Trading Bot
 on:
   schedule:
     # Runs every 5 minutes from 13:00 to 20:00 UTC (9:00 AM to 4:00 PM EST) Monday to Friday
-    - cron: '*/5 13-20 * * 1-5'
+    # - cron: '*/5 13-20 * * 1-5' (DISABLED)
   workflow_dispatch:
 
 jobs:
