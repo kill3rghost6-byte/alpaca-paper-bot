@@ -17,7 +17,9 @@ POLYGON_API_KEY = "VGqkhp8QU3aQiQbMOjJ4BRgAVLOnOMnp"
 SYMBOLS = ['STX', 'WDC', 'MU', 'HUT', 'AAOI']
 
 POSITION_SIZE_PCT = 0.20  # ورود با 20 درصد سرمایه برای هر سهم
-TAKE_PROFIT_PCT = 0.20    # حد سود 20 درصدی
+TP1_PCT = 0.10            # تارگت اول 10 درصد (بستن 75% پوزیشن)
+TP2_PCT = 0.20            # تارگت دوم 20 درصد
+SL_PCT = 0.10             # حد ضرر اولیه 10 درصد
 
 ALPACA_HEADERS = {
     "APCA-API-KEY-ID": ALPACA_API_KEY,
@@ -103,28 +105,56 @@ def has_traded_today(symbol):
                 return True
     return False
 
-def place_buy_order_with_tp(symbol, qty, current_price):
-    tp_price = round(current_price * (1 + TAKE_PROFIT_PCT), 2)
-    
+def place_buy_order(symbol, qty, current_price):
     order_data = {
         "symbol": symbol,
         "qty": str(qty),
         "side": "buy",
         "type": "market",
-        "time_in_force": "day",
-        "order_class": "oto",
-        "take_profit": {
-            "limit_price": str(tp_price)
-        }
+        "time_in_force": "day"
     }
     
     resp = requests.post(f"{ALPACA_BASE_URL}/orders", headers=ALPACA_HEADERS, json=order_data)
     if resp.status_code in [200, 201]:
-        msg = f"✅ **ORDER SUCCESS** ✅\nBought {qty} shares of {symbol} at ~${current_price}.\nTP Limit: ${tp_price}"
+        msg = f"✅ **ORDER SUCCESS** ✅\nBought {qty} shares of {symbol} at ~${current_price}.\nTP1: +{TP1_PCT*100}% | TP2: +{TP2_PCT*100}%"
+        print(msg)
+        send_telegram(msg)
+        
+        # Save state
+        state_file = 'alpaca_state.json'
+        import json
+        state = {}
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+        state[symbol] = {
+            'tp1_done': False,
+            'sl': current_price * (1 - SL_PCT),
+            'entry': current_price
+        }
+        with open(state_file, 'w') as f:
+            json.dump(state, f)
+            
+    else:
+        msg = f"❌ **ORDER FAILED** ❌\n{symbol}: {resp.text}"
+        print(msg)
+        send_telegram(msg)
+
+def place_sell_order(symbol, qty, reason):
+    order_data = {
+        "symbol": symbol,
+        "qty": str(qty),
+        "side": "sell",
+        "type": "market",
+        "time_in_force": "day"
+    }
+    resp = requests.post(f"{ALPACA_BASE_URL}/orders", headers=ALPACA_HEADERS, json=order_data)
+    if resp.status_code in [200, 201]:
+        msg = f"💰 **SELL SUCCESS ({reason})** 💰\nSold {qty} shares of {symbol}."
         print(msg)
         send_telegram(msg)
     else:
-        msg = f"❌ **ORDER FAILED** ❌\n{symbol}: {resp.text}"
+        msg = f"❌ **SELL FAILED ({reason})** ❌\n{symbol}: {resp.text}"
         print(msg)
         send_telegram(msg)
 
@@ -153,11 +183,58 @@ def run_bot():
     equity = float(account['equity'])
     open_positions = get_open_positions()
     
+    # Manage Open Positions
+    state_file = 'alpaca_state.json'
+    import json
+    state = {}
+    if os.path.exists(state_file):
+        with open(state_file, 'r') as f:
+            state = json.load(f)
+            
+    pos_resp = requests.get(f"{ALPACA_BASE_URL}/positions", headers=ALPACA_HEADERS)
+    if pos_resp.status_code == 200:
+        positions = pos_resp.json()
+        for p in positions:
+            sym = p['symbol']
+            qty = int(p['qty'])
+            current_price = float(p['current_price'])
+            avg_entry = float(p['avg_entry_price'])
+            
+            if sym not in state:
+                state[sym] = {'tp1_done': False, 'sl': avg_entry * (1 - SL_PCT), 'entry': avg_entry}
+                
+            sym_state = state[sym]
+            tp1_price = sym_state['entry'] * (1 + TP1_PCT)
+            tp2_price = sym_state['entry'] * (1 + TP2_PCT)
+            sl_price = sym_state['sl']
+            
+            # Check Stop Loss
+            if current_price <= sl_price:
+                place_sell_order(sym, qty, "STOP LOSS / BREAKEVEN")
+                del state[sym]
+                continue
+                
+            # Check TP2
+            if current_price >= tp2_price:
+                place_sell_order(sym, qty, "TAKE PROFIT 2")
+                del state[sym]
+                continue
+                
+            # Check TP1
+            if current_price >= tp1_price and not sym_state['tp1_done']:
+                sell_qty = int(qty * 0.75)
+                if sell_qty > 0:
+                    place_sell_order(sym, sell_qty, "TAKE PROFIT 1 (75%)")
+                sym_state['tp1_done'] = True
+                sym_state['sl'] = sym_state['entry'] # Move SL to Breakeven
+                send_telegram(f"🛡️ **{sym} SL Moved to Breakeven**")
+
+    with open(state_file, 'w') as f:
+        json.dump(state, f)
+    
     for symbol in SYMBOLS:
         if symbol in open_positions:
-            print(f"  ⏭️ {symbol}: Already in position. Waiting for Take Profit.")
             continue
-            
         if has_traded_today(symbol):
             print(f"  🛑 {symbol}: Already traded today. Waiting for tomorrow to prevent over-trading.")
             continue
@@ -181,7 +258,7 @@ def run_bot():
                 qty = int(position_value / current_price)
                 
                 if qty > 0:
-                    place_buy_order_with_tp(symbol, qty, current_price)
+                    place_buy_order(symbol, qty, current_price)
                 else:
                     print(f"  ⚠️ Not enough equity to buy even 1 share of {symbol}.")
         
