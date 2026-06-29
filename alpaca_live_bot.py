@@ -141,6 +141,7 @@ def place_buy_order(symbol, qty, current_price):
         send_telegram(msg)
 
 def place_sell_order(symbol, qty, reason):
+    if qty <= 0: return True
     order_data = {
         "symbol": symbol,
         "qty": str(qty),
@@ -153,10 +154,12 @@ def place_sell_order(symbol, qty, reason):
         msg = f"💰 **SELL SUCCESS ({reason})** 💰\nSold {qty} shares of {symbol}."
         print(msg)
         send_telegram(msg)
+        return True
     else:
         msg = f"❌ **SELL FAILED ({reason})** ❌\n{symbol}: {resp.text}"
         print(msg)
         send_telegram(msg)
+        return False
 
 # ==========================================
 # 🚀 موتور اصلی ربات (برای GitHub Actions)
@@ -223,11 +226,11 @@ def run_bot():
             # Check TP1
             if current_price >= tp1_price and not sym_state['tp1_done']:
                 sell_qty = int(qty * 0.75)
-                if sell_qty > 0:
-                    place_sell_order(sym, sell_qty, "TAKE PROFIT 1 (75%)")
-                sym_state['tp1_done'] = True
-                sym_state['sl'] = sym_state['entry'] # Move SL to Breakeven
-                send_telegram(f"🛡️ **{sym} SL Moved to Breakeven**")
+                success = place_sell_order(sym, sell_qty, "TAKE PROFIT 1 (75%)")
+                if success:
+                    sym_state['tp1_done'] = True
+                    sym_state['sl'] = sym_state['entry'] # Move SL to Breakeven
+                    send_telegram(f"🛡️ **{sym} SL Moved to Breakeven**")
 
     with open(state_file, 'w') as f:
         json.dump(state, f)
