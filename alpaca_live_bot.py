@@ -1,3 +1,7 @@
+import sys
+print("BOT IS TEMPORARILY DISABLED. EXITING.")
+sys.exit(0)
+
 import time
 import requests
 import pandas as pd
